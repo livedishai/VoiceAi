@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Restaurant Voice Assistant</title>
+  <title>Restaurant AI Voice Assistant</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -47,7 +47,7 @@
       color: #94a3b8;
     }
     .chat-box {
-      height: 360px;
+      height: 340px;
       overflow-y: auto;
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -56,7 +56,7 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     .msg {
       padding: 10px 14px;
@@ -64,6 +64,7 @@
       max-width: 80%;
       line-height: 1.4;
       font-size: 0.95rem;
+      word-break: break-word;
     }
     .msg.user {
       align-self: flex-end;
@@ -75,20 +76,44 @@
       background: var(--card);
       border: 1px solid var(--border);
     }
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .input-row input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: white;
+      font-size: 0.95rem;
+      outline: none;
+    }
+    .input-row button {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
     .controls {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
     }
     .mic-btn {
-      width: 76px;
-      height: 76px;
+      width: 70px;
+      height: 70px;
       border-radius: 50%;
       border: none;
       background: var(--accent);
       color: #0f172a;
-      font-size: 2rem;
+      font-size: 1.9rem;
       cursor: pointer;
       display: flex;
       align-items: center;
@@ -112,10 +137,16 @@
 
   <div class="container">
     <h1>🍽️ Restaurant Voice Assistant</h1>
-    <div class="status" id="statusText">Loading restaurant info...</div>
+    <div class="status" id="statusText">Ready — Tap mic or type below</div>
 
     <div class="chat-box" id="chatBox">
-      <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu or reserve a table!</div>
+      <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu specials or book a table. How can I help you today?</div>
+    </div>
+
+    <!-- Text input option for testing without mic -->
+    <div class="input-row">
+      <input type="text" id="textInput" placeholder="Type a question or reservation details..." />
+      <button id="sendBtn">Send</button>
     </div>
 
     <div class="controls">
@@ -124,56 +155,33 @@
   </div>
 
   <script>
-    // Retrieves stored key or prompts once (avoids GitHub secret scanner blocks)
-    let GEMINI_API_KEY = localStorage.getItem("GEMINI_KEY");
-    if (!GEMINI_API_KEY) {
-      GEMINI_API_KEY = prompt("Enter your Gemini API Key:");
-      if (GEMINI_API_KEY) localStorage.setItem("GEMINI_KEY", GEMINI_API_KEY);
-    }
+    // Set your API key here (saved in localStorage for convenience)
+    let GEMINI_API_KEY = localStorage.getItem("GEMINI_KEY") || "AQ.Ab8RN6J6-yzK2TCX_0jSgQ-7lKhaByCvXjgvmo0REUfAqu7TRQ";
+    localStorage.setItem("GEMINI_KEY", GEMINI_API_KEY);
 
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
 
-    let dynamicRestaurantInfo = "Default Japanese restaurant details and table booking.";
-    let conversationHistory = [];
+    // Default menu & timings backup (used immediately so the app never gets stuck)
+    let dynamicRestaurantInfo = `
+Restaurant: Sakura Garden Japanese Restaurant
+Address: 100 Feet Road, Indiranagar, Bengaluru
+Timings: Lunch 12:00 PM - 3:30 PM | Dinner 7:00 PM - 11:30 PM
+Menu Highlights:
+- Agedashi Tofu (₹350): Crispy silken tofu in savory dashi broth (Vegetarian).
+- Pan-seared Gyoza (₹420): Japanese dumplings with pork or vegetables.
+- Truffle Mushroom Ramen (₹520): Miso broth, fresh noodles, wild shiitake (Vegetarian).
+- Grilled Salmon Teriyaki (₹750): Norwegian salmon with homemade teriyaki glaze.
+- Matcha Ice Cream (₹250): Classic green tea dessert.
+`;
 
+    let conversationHistory = [];
     const chatBox = document.getElementById("chatBox");
     const micBtn = document.getElementById("micBtn");
     const statusText = document.getElementById("statusText");
+    const textInput = document.getElementById("textInput");
+    const sendBtn = document.getElementById("sendBtn");
 
-    // Fetch dynamic menu & info from Google Sheets on startup
-    async function loadRestaurantInfo() {
-      try {
-        const res = await fetch(GOOGLE_SCRIPT_URL);
-        const data = await res.json();
-        if (data && data.info) {
-          dynamicRestaurantInfo = data.info;
-          console.log("Loaded info from Google Sheet:\n", dynamicRestaurantInfo);
-        }
-      } catch (e) {
-        console.warn("Could not load dynamic sheet info, using fallback.", e);
-      } finally {
-        statusText.textContent = "Tap the microphone to speak";
-      }
-    }
-    loadRestaurantInfo();
-
-    function getSystemInstruction() {
-      return `
-You are a friendly, conversational voice assistant for this restaurant.
-
-LIVE RESTAURANT DATA & MENU FROM DATABASE:
-${dynamicRestaurantInfo}
-
-RULES:
-1. Use the live data above to answer all customer questions regarding dishes, prices, timings, and policies.
-2. Handle table reservations politely by collecting: Name, Phone Number, Number of Guests, Date & Time.
-3. Once you have ALL 4 details, reply with a short confirmation message and append this exact tag at the end:
-   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
-4. Keep all spoken responses short (1-2 sentences) and natural.
-`;
-    }
-
-    // Web Speech API Setup
+    // Initialize Web Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let isListening = false;
@@ -198,8 +206,8 @@ RULES:
       };
 
       recognition.onerror = (event) => {
-        console.error("Speech Recognition Error:", event.error);
-        statusText.textContent = "Error listening. Tap mic to try again.";
+        console.error("Speech Error:", event.error);
+        statusText.textContent = "Microphone error: " + event.error;
         stopListening();
       };
 
@@ -207,25 +215,47 @@ RULES:
         stopListening();
       };
     } else {
-      statusText.textContent = "Web Speech API is not supported in this browser. Please use Chrome.";
+      statusText.textContent = "Web Speech API not supported in this browser. Please use Chrome.";
     }
 
     function toggleListening() {
-      if (!recognition) return;
+      if (!recognition) {
+        alert("Microphone recognition is only supported in Google Chrome on desktop or Android.");
+        return;
+      }
       if (isListening) {
         recognition.stop();
       } else {
-        recognition.start();
+        try {
+          recognition.start();
+        } catch (e) {
+          console.error("Recognition start error:", e);
+        }
       }
     }
 
     function stopListening() {
       isListening = false;
       micBtn.classList.remove("listening");
-      statusText.textContent = "Tap the microphone to speak";
+      statusText.textContent = "Ready — Tap mic or type below";
     }
 
     micBtn.addEventListener("click", toggleListening);
+
+    // Text Send Handler
+    function handleSend() {
+      const text = textInput.value.trim();
+      if (!text) return;
+      textInput.value = "";
+      addMessage(text, "user");
+      statusText.textContent = "Thinking...";
+      processUserMessage(text);
+    }
+
+    sendBtn.addEventListener("click", handleSend);
+    textInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") handleSend();
+    });
 
     function addMessage(text, sender) {
       const msg = document.createElement("div");
@@ -244,13 +274,24 @@ RULES:
       window.speechSynthesis.speak(utterance);
     }
 
-    async function processUserMessage(userInput) {
-      if (!GEMINI_API_KEY) {
-        const err = "Gemini API key is required.";
-        addMessage(err, "bot");
-        return;
-      }
+    function getSystemInstruction() {
+      return `
+You are a friendly, conversational voice host for a restaurant.
 
+LIVE RESTAURANT DATA & MENU:
+${dynamicRestaurantInfo}
+
+RULES:
+1. Use the live data above to answer all customer questions regarding dishes, prices, timings, and policies.
+2. Handle table reservations politely by collecting: Name, Phone Number, Number of Guests, Date & Time.
+3. Once you have ALL 4 details, reply with a short confirmation message and append this exact tag at the end:
+   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
+4. Keep all spoken responses short (1-2 sentences) and natural.
+`;
+    }
+
+    // Call Gemini API
+    async function processUserMessage(userInput) {
       conversationHistory.push({ role: "user", parts: [{ text: userInput }] });
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -293,10 +334,11 @@ RULES:
         addMessage(err, "bot");
         speakText(err);
       } finally {
-        statusText.textContent = "Tap the microphone to speak";
+        statusText.textContent = "Ready — Tap mic or type below";
       }
     }
 
+    // Save reservation to Google Sheets
     async function saveToGoogleSheet(bookingData) {
       try {
         await fetch(GOOGLE_SCRIPT_URL, {
