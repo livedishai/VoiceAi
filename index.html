@@ -1,0 +1,42 @@
+// Handles GET via JSONP (Safe for all browsers & mobile)
+function doGet(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName("Restaurant_Info");
+  var values = sheet ? sheet.getDataRange().getValues() : [];
+  var infoText = "";
+
+  for (var i = 1; i < values.length; i++) {
+    if (values[i][0]) {
+      infoText += values[i][0] + ": " + values[i][1] + "\n";
+    }
+  }
+
+  var callback = e.parameter.callback || "onRestaurantDataLoaded";
+  var output = callback + "(" + JSON.stringify({ "info": infoText }) + ");";
+
+  return ContentService.createTextOutput(output)
+    .setMimeType(ContentService.MimeType.JAVASCRIPT);
+}
+
+// Handles POST for reservations
+function doPost(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName("Bookings") || ss.getSheets()[0];
+    var data = JSON.parse(e.postData.contents);
+    
+    sheet.appendRow([
+      new Date(),
+      data.customer_name,
+      data.phone,
+      data.guests,
+      data.date_time
+    ]);
+    
+    return ContentService.createTextOutput(JSON.stringify({ "status": "success" }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ "status": "error", "message": err.toString() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
