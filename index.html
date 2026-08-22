@@ -112,10 +112,10 @@
 
   <div class="container">
     <h1>🍽️ Restaurant Voice Assistant</h1>
-    <div class="status" id="statusText">Tap the microphone to speak</div>
+    <div class="status" id="statusText">Loading restaurant info...</div>
 
     <div class="chat-box" id="chatBox">
-      <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu specials or book a table. How can I help you today?</div>
+      <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu or reserve a table!</div>
     </div>
 
     <div class="controls">
@@ -124,33 +124,56 @@
   </div>
 
   <script>
-    const GEMINI_API_KEY = "AQ.Ab8RN6J6-yzK2TCX_0jSgQ-7lKhaByCvXjgvmo0REUfAqu7TRQ";
+    // Retrieves stored key or prompts once (avoids GitHub secret scanner blocks)
+    let GEMINI_API_KEY = localStorage.getItem("GEMINI_KEY");
+    if (!GEMINI_API_KEY) {
+      GEMINI_API_KEY = prompt("Enter your Gemini API Key:");
+      if (GEMINI_API_KEY) localStorage.setItem("GEMINI_KEY", GEMINI_API_KEY);
+    }
+
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
 
-    const SYSTEM_INSTRUCTION = `
-You are a friendly, conversational voice assistant for a restaurant.
-Your roles:
-1. Explain dishes, ingredients, allergens, and recommend menu items.
-   Menu Highlights:
-   - Agedashi Tofu: Crispy fried tofu in savory dashi broth with green onions (Vegetarian).
-   - Pan-seared Gyoza: Japanese dumplings filled with pork or cabbage/scallions.
-   - Truffle Mushroom Risotto: Creamy arborio rice with wild forest mushrooms and black truffle essence.
-   - Grilled Salmon Teriyaki: Fresh Atlantic salmon glazed with sweet teriyaki sauce, served with steamed jasmine rice.
-2. Handle table reservations politely. You need 4 pieces of information:
-   - Customer Name
-   - Phone Number
-   - Number of Guests
-   - Date and Time
-3. Once you have ALL 4 details, respond with a confirmation message AND include a hidden JSON block at the very end of your response in this exact format:
-   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
-4. Keep all responses concise and conversational (1-3 sentences) suitable for being spoken out loud.
-`;
-
+    let dynamicRestaurantInfo = "Default Japanese restaurant details and table booking.";
     let conversationHistory = [];
+
     const chatBox = document.getElementById("chatBox");
     const micBtn = document.getElementById("micBtn");
     const statusText = document.getElementById("statusText");
 
+    // Fetch dynamic menu & info from Google Sheets on startup
+    async function loadRestaurantInfo() {
+      try {
+        const res = await fetch(GOOGLE_SCRIPT_URL);
+        const data = await res.json();
+        if (data && data.info) {
+          dynamicRestaurantInfo = data.info;
+          console.log("Loaded info from Google Sheet:\n", dynamicRestaurantInfo);
+        }
+      } catch (e) {
+        console.warn("Could not load dynamic sheet info, using fallback.", e);
+      } finally {
+        statusText.textContent = "Tap the microphone to speak";
+      }
+    }
+    loadRestaurantInfo();
+
+    function getSystemInstruction() {
+      return `
+You are a friendly, conversational voice assistant for this restaurant.
+
+LIVE RESTAURANT DATA & MENU FROM DATABASE:
+${dynamicRestaurantInfo}
+
+RULES:
+1. Use the live data above to answer all customer questions regarding dishes, prices, timings, and policies.
+2. Handle table reservations politely by collecting: Name, Phone Number, Number of Guests, Date & Time.
+3. Once you have ALL 4 details, reply with a short confirmation message and append this exact tag at the end:
+   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
+4. Keep all spoken responses short (1-2 sentences) and natural.
+`;
+    }
+
+    // Web Speech API Setup
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let isListening = false;
@@ -184,7 +207,7 @@ Your roles:
         stopListening();
       };
     } else {
-      statusText.textContent = "Web Speech API is not supported in this browser. Please use Google Chrome.";
+      statusText.textContent = "Web Speech API is not supported in this browser. Please use Chrome.";
     }
 
     function toggleListening() {
@@ -222,6 +245,12 @@ Your roles:
     }
 
     async function processUserMessage(userInput) {
+      if (!GEMINI_API_KEY) {
+        const err = "Gemini API key is required.";
+        addMessage(err, "bot");
+        return;
+      }
+
       conversationHistory.push({ role: "user", parts: [{ text: userInput }] });
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -231,7 +260,7 @@ Your roles:
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+            systemInstruction: { parts: [{ text: getSystemInstruction()] } },
             contents: conversationHistory
           })
         });
@@ -263,6 +292,8 @@ Your roles:
         const err = "Sorry, I ran into an issue connecting to the AI.";
         addMessage(err, "bot");
         speakText(err);
+      } finally {
+        statusText.textContent = "Tap the microphone to speak";
       }
     }
 
