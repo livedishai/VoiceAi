@@ -152,17 +152,16 @@
   </div>
 
   <script>
-    const GEMINI_API_KEY = "AIzaSyDbNYpS56jrof55lASXfIN-IoWD1hUG-jQ";
+    const GEMINI_API_KEY = "AIzaSyCbnQPV-ZMsmYb5Uy9gid8FvTY3GWmOk0Y";
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
 
-    // Immediate fallback info (ensures agent is ALWAYS ready)
     let liveRestaurantInfo = `
 Restaurant: Sakura Garden
 Menu:
-- Agedashi Tofu (₹350, Veg): Crispy silken tofu in dashi broth.
-- Pan-seared Gyoza (₹420): Japanese dumplings with pork or veggies.
-- Truffle Mushroom Ramen (₹520, Veg): Rich miso broth with shiitake.
-- Grilled Salmon Teriyaki (₹750): Norwegian salmon with teriyaki glaze.
+- Agedashi Tofu (₹350, Veg): Crispy silken tofu in warm savory dashi broth.
+- Pan-seared Gyoza (₹420): Japanese dumplings with seasoned fillings.
+- Truffle Mushroom Ramen (₹520, Veg): Rich miso broth with fresh noodles and shiitake.
+- Grilled Salmon Teriyaki (₹750): Norwegian salmon with homemade teriyaki glaze.
 Timings: 12:00 PM to 11:30 PM.
 `;
 
@@ -173,11 +172,10 @@ Timings: 12:00 PM to 11:30 PM.
     const textInput = document.getElementById("textInput");
     const sendBtn = document.getElementById("sendBtn");
 
-    // Dynamic JSONP loader to fetch menu without CORS failure
+    // Dynamic JSONP loader to fetch menu without CORS issues
     window.onRestaurantDataLoaded = function(data) {
       if (data && data.info && data.info.trim().length > 0) {
         liveRestaurantInfo = data.info;
-        console.log("Database connected & synced!");
       }
       statusText.textContent = "Ready — Tap mic or type below";
     };
@@ -187,7 +185,6 @@ Timings: 12:00 PM to 11:30 PM.
         const script = document.createElement("script");
         script.src = `${GOOGLE_SCRIPT_URL}?callback=onRestaurantDataLoaded`;
         script.onerror = () => {
-          console.warn("Could not sync with Google Sheet, using standard menu.");
           statusText.textContent = "Ready — Tap mic or type below";
         };
         document.body.appendChild(script);
@@ -279,7 +276,7 @@ RULES:
       }
     }
 
-    // Text Input Handlers
+    // Text input handlers
     function handleSend() {
       const text = textInput.value.trim();
       if (!text) return;
@@ -288,7 +285,7 @@ RULES:
       processUserMessage(text);
     }
 
-    sendBtn.onclick = handleSend;
+    sendBtn.addEventListener("click", handleSend);
     textInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
@@ -335,9 +332,9 @@ RULES:
       statusText.textContent = "Ready — Tap mic or type below";
     }
 
-    micBtn.onclick = () => {
+    micBtn.addEventListener("click", () => {
       if (!recognition) {
-        alert("Speech Recognition not supported in this browser. Please type or use Chrome.");
+        alert("Speech recognition not supported in this browser. Please type or use Chrome.");
         return;
       }
       if (isListening) {
@@ -349,7 +346,7 @@ RULES:
           recognition.stop();
         }
       }
-    };
+    });
 
     async function saveToGoogleSheet(bookingData) {
       try {
@@ -359,7 +356,7 @@ RULES:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(bookingData)
         });
-        console.log("Reservation sent to sheet:", bookingData);
+        console.log("Reservation recorded in Google Sheet:", bookingData);
       } catch (e) {}
     }
   </script>
