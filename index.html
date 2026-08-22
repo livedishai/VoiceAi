@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Restaurant Voice Assistant</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --accent: #38bdf8;
+      --accent-active: #ef4444;
+      --border: #334155;
+    }
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      background: var(--card);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.5rem;
+      text-align: center;
+      color: var(--accent);
+    }
+    .status {
+      text-align: center;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+      color: #94a3b8;
+    }
+    .chat-box {
+      height: 360px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .msg {
+      padding: 10px 14px;
+      border-radius: 10px;
+      max-width: 80%;
+      line-height: 1.4;
+      font-size: 0.95rem;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: white;
+    }
+    .msg.bot {
+      align-self: flex-start;
+      background: var(--card);
+      border: 1px solid var(--border);
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+    .mic-btn {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #0f172a;
+      font-size: 2rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      outline: none;
+    }
+    .mic-btn.listening {
+      background: var(--accent-active);
+      color: white;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1.08); box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+      100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>🍽️ Restaurant Voice Assistant</h1>
+    <div class="status" id="statusText">Tap the microphone to speak</div>
+
+    <div class="chat-box" id="chatBox">
+      <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu specials or book a table. How can I help you today?</div>
+    </div>
+
+    <div class="controls">
+      <button class="mic-btn" id="micBtn" title="Click to Speak">🎙️</button>
+    </div>
+  </div>
+
+  <script>
+    const GEMINI_API_KEY = "AQ.Ab8RN6J6-yzK2TCX_0jSgQ-7lKhaByCvXjgvmo0REUfAqu7TRQ";
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
+
+    const SYSTEM_INSTRUCTION = `
+You are a friendly, conversational voice assistant for a restaurant.
+Your roles:
+1. Explain dishes, ingredients, allergens, and recommend menu items.
+   Menu Highlights:
+   - Agedashi Tofu: Crispy fried tofu in savory dashi broth with green onions (Vegetarian).
+   - Pan-seared Gyoza: Japanese dumplings filled with pork or cabbage/scallions.
+   - Truffle Mushroom Risotto: Creamy arborio rice with wild forest mushrooms and black truffle essence.
+   - Grilled Salmon Teriyaki: Fresh Atlantic salmon glazed with sweet teriyaki sauce, served with steamed jasmine rice.
+2. Handle table reservations politely. You need 4 pieces of information:
+   - Customer Name
+   - Phone Number
+   - Number of Guests
+   - Date and Time
+3. Once you have ALL 4 details, respond with a confirmation message AND include a hidden JSON block at the very end of your response in this exact format:
+   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
+4. Keep all responses concise and conversational (1-3 sentences) suitable for being spoken out loud.
+`;
+
+    let conversationHistory = [];
+    const chatBox = document.getElementById("chatBox");
+    const micBtn = document.getElementById("micBtn");
+    const statusText = document.getElementById("statusText");
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let isListening = false;
+
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add("listening");
+        statusText.textContent = "Listening... Speak now";
+      };
+
+      recognition.onresult = async (event) => {
+        const transcript = event.results[0][0].transcript;
+        addMessage(transcript, "user");
+        statusText.textContent = "Thinking...";
+        await processUserMessage(transcript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech Recognition Error:", event.error);
+        statusText.textContent = "Error listening. Tap mic to try again.";
+        stopListening();
+      };
+
+      recognition.onend = () => {
+        stopListening();
+      };
+    } else {
+      statusText.textContent = "Web Speech API is not supported in this browser. Please use Google Chrome.";
+    }
+
+    function toggleListening() {
+      if (!recognition) return;
+      if (isListening) {
+        recognition.stop();
+      } else {
+        recognition.start();
+      }
+    }
+
+    function stopListening() {
+      isListening = false;
+      micBtn.classList.remove("listening");
+      statusText.textContent = "Tap the microphone to speak";
+    }
+
+    micBtn.addEventListener("click", toggleListening);
+
+    function addMessage(text, sender) {
+      const msg = document.createElement("div");
+      msg.className = `msg ${sender}`;
+      msg.textContent = text;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function speakText(text) {
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
+
+    async function processUserMessage(userInput) {
+      conversationHistory.push({ role: "user", parts: [{ text: userInput }] });
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+            contents: conversationHistory
+          })
+        });
+
+        const data = await response.json();
+        if (data.error) throw new Error(data.error.message);
+
+        const aiResponse = data.candidates[0].content.parts[0].text;
+        conversationHistory.push({ role: "model", parts: [{ text: aiResponse }] });
+
+        const bookingMatch = aiResponse.match(/\[BOOKING:\s*(\{.*?\})\]/);
+        let spokenResponse = aiResponse;
+
+        if (bookingMatch) {
+          spokenResponse = aiResponse.replace(bookingMatch[0], "").trim();
+          try {
+            const bookingData = JSON.parse(bookingMatch[1]);
+            saveToGoogleSheet(bookingData);
+          } catch (e) {
+            console.error("Failed to parse booking JSON:", e);
+          }
+        }
+
+        addMessage(spokenResponse, "bot");
+        speakText(spokenResponse);
+
+      } catch (error) {
+        console.error("Gemini API Error:", error);
+        const err = "Sorry, I ran into an issue connecting to the AI.";
+        addMessage(err, "bot");
+        speakText(err);
+      }
+    }
+
+    async function saveToGoogleSheet(bookingData) {
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bookingData)
+        });
+        console.log("Reservation recorded in Google Sheet:", bookingData);
+      } catch (err) {
+        console.error("Error saving booking to Google Sheet:", err);
+      }
+    }
+  </script>
+</body>
+</html>
