@@ -135,7 +135,7 @@
 
   <div class="container">
     <h1>🍽️ Restaurant Voice Assistant</h1>
-    <div class="status" id="statusText">Connecting live to restaurant database...</div>
+    <div class="status" id="statusText">Ready — Tap mic or type below</div>
 
     <div class="chat-box" id="chatBox">
       <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu specials or book a table. How can I help you today?</div>
@@ -155,39 +155,57 @@
     const GEMINI_API_KEY = "AIzaSyDbNYpS56jrof55lASXfIN-IoWD1hUG-jQ";
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
 
-    let liveRestaurantInfo = "Loading restaurant information...";
-    let conversationHistory = [];
+    // Immediate fallback info (ensures agent is ALWAYS ready)
+    let liveRestaurantInfo = `
+Restaurant: Sakura Garden
+Menu:
+- Agedashi Tofu (₹350, Veg): Crispy silken tofu in dashi broth.
+- Pan-seared Gyoza (₹420): Japanese dumplings with pork or veggies.
+- Truffle Mushroom Ramen (₹520, Veg): Rich miso broth with shiitake.
+- Grilled Salmon Teriyaki (₹750): Norwegian salmon with teriyaki glaze.
+Timings: 12:00 PM to 11:30 PM.
+`;
 
+    let conversationHistory = [];
     const chatBox = document.getElementById("chatBox");
     const micBtn = document.getElementById("micBtn");
     const statusText = document.getElementById("statusText");
     const textInput = document.getElementById("textInput");
     const sendBtn = document.getElementById("sendBtn");
 
-    // Dynamic JSONP loader
+    // Dynamic JSONP loader to fetch menu without CORS failure
     window.onRestaurantDataLoaded = function(data) {
-      if (data && data.info) {
+      if (data && data.info && data.info.trim().length > 0) {
         liveRestaurantInfo = data.info;
-        statusText.textContent = "Ready — Tap mic or type below";
+        console.log("Database connected & synced!");
       }
+      statusText.textContent = "Ready — Tap mic or type below";
     };
 
     function fetchMenuFromGoogleSheet() {
-      const script = document.createElement("script");
-      script.src = `${GOOGLE_SCRIPT_URL}?callback=onRestaurantDataLoaded`;
-      document.body.appendChild(script);
+      try {
+        const script = document.createElement("script");
+        script.src = `${GOOGLE_SCRIPT_URL}?callback=onRestaurantDataLoaded`;
+        script.onerror = () => {
+          console.warn("Could not sync with Google Sheet, using standard menu.");
+          statusText.textContent = "Ready — Tap mic or type below";
+        };
+        document.body.appendChild(script);
+      } catch (err) {
+        statusText.textContent = "Ready — Tap mic or type below";
+      }
     }
     fetchMenuFromGoogleSheet();
 
     function getSystemInstruction() {
       return `
-You are a friendly, helpful voice assistant for this restaurant.
+You are a friendly restaurant voice assistant.
 
-LIVE RESTAURANT DATA & MENU FROM GOOGLE SHEETS:
+RESTAURANT DATA & MENU:
 ${liveRestaurantInfo}
 
 RULES:
-1. Answer customer questions about dishes, allergens, pricing, and operating hours using the live data above.
+1. Answer customer questions about dishes, allergens, pricing, and operating hours using the data above.
 2. For table reservations, collect: Customer Name, Phone Number, Number of Guests, Date & Time.
 3. Once all 4 reservation details are gathered, provide a short confirmation message and append this exact block at the very end:
    [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
@@ -278,7 +296,7 @@ RULES:
       }
     });
 
-    // Speech Recognition
+    // Web Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let recognition = null;
     let isListening = false;
@@ -341,6 +359,7 @@ RULES:
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(bookingData)
         });
+        console.log("Reservation sent to sheet:", bookingData);
       } catch (e) {}
     }
   </script>
