@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Restaurant AI Voice Assistant</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f8fafc;
+      --accent: #38bdf8;
+      --accent-active: #ef4444;
+      --border: #334155;
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+    }
+    .container {
+      width: 100%;
+      max-width: 500px;
+      background: var(--card);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 1.3rem;
+      text-align: center;
+      color: var(--accent);
+    }
+    .status {
+      text-align: center;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      color: #94a3b8;
+    }
+    .chat-box {
+      height: 320px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      background: #0f172a;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .msg {
+      padding: 10px 14px;
+      border-radius: 10px;
+      max-width: 85%;
+      line-height: 1.4;
+      font-size: 0.95rem;
+      word-break: break-word;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: white;
+    }
+    .msg.bot {
+      align-self: flex-start;
+      background: var(--card);
+      border: 1px solid var(--border);
+    }
+    .msg.error {
+      align-self: center;
+      background: #7f1d1d;
+      color: #fecaca;
+      font-size: 0.85rem;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .input-row input {
+      flex: 1;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      color: white;
+      font-size: 1rem;
+      outline: none;
+    }
+    .input-row button {
+      padding: 12px 18px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .controls {
+      display: flex;
+      justify-content: center;
+    }
+    .mic-btn {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #0f172a;
+      font-size: 2rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      outline: none;
+      touch-action: manipulation;
+    }
+    .mic-btn.listening {
+      background: var(--accent-active);
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>🍽️ Restaurant Voice Assistant</h1>
+    <div class="status" id="statusText">Ready — Tap mic or type below</div>
+
+    <div class="chat-box" id="chatBox">
+      <div class="msg bot">Hello! Welcome to our restaurant. Feel free to ask about our menu specials or book a table. How can I help you today?</div>
+    </div>
+
+    <div class="input-row">
+      <input type="text" id="textInput" placeholder="Type a dish question or table booking..." />
+      <button id="sendBtn" type="button">Send</button>
+    </div>
+
+    <div class="controls">
+      <button class="mic-btn" id="micBtn" type="button">🎙️</button>
+    </div>
+  </div>
+
+  <script>
+    const GEMINI_API_KEY = "AIzaSyDbNYpS56jrof55lASXfIN-IoWD1hUG-jQ";
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
+
+    let liveRestaurantInfo = `
+Restaurant: Sakura Garden Japanese Restaurant
+Address: 100 Feet Road, Indiranagar, Bengaluru
+Timings: Lunch 12:00 PM to 3:30 PM | Dinner 7:00 PM to 11:30 PM
+Menu:
+- Agedashi Tofu (₹350, Vegetarian): Crispy silken tofu in warm savory dashi broth with scallions.
+- Pan-seared Gyoza (₹420): Japanese dumplings filled with pork or seasonal vegetables.
+- Truffle Mushroom Ramen (₹520, Vegetarian): Creamy miso broth with shiitake and fresh noodles.
+- Grilled Salmon Teriyaki (₹750): Norwegian salmon glazed with homemade teriyaki sauce.
+`;
+
+    let conversationHistory = [];
+    const chatBox = document.getElementById("chatBox");
+    const micBtn = document.getElementById("micBtn");
+    const statusText = document.getElementById("statusText");
+    const textInput = document.getElementById("textInput");
+    const sendBtn = document.getElementById("sendBtn");
+
+    // Dynamic JSONP loader to fetch menu from Google Sheets
+    window.onRestaurantDataLoaded = function(data) {
+      if (data && data.info && data.info.trim().length > 0) {
+        liveRestaurantInfo = data.info;
+      }
+      statusText.textContent = "Ready — Tap mic or type below";
+    };
+
+    function fetchMenuFromGoogleSheet() {
+      try {
+        const script = document.createElement("script");
+        script.src = `${GOOGLE_SCRIPT_URL}?callback=onRestaurantDataLoaded`;
+        document.body.appendChild(script);
+      } catch (err) {}
+    }
+    fetchMenuFromGoogleSheet();
+
+    function getSystemInstruction() {
+      return `
+You are a friendly restaurant voice assistant.
+
+RESTAURANT DATA & MENU:
+${liveRestaurantInfo}
+
+RULES:
+1. Answer customer questions about dishes, allergens, pricing, and operating hours using the data above.
+2. For table reservations, collect: Customer Name, Phone Number, Number of Guests, Date & Time.
+3. Once all 4 reservation details are gathered, provide a short confirmation message and append this exact block at the very end:
+   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
+4. Keep spoken responses short (1-2 sentences) so they sound natural over voice.
+`;
+    }
+
+    function addMessage(text, type) {
+      const msg = document.createElement("div");
+      msg.className = `msg ${type}`;
+      msg.textContent = text;
+      chatBox.appendChild(msg);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function speakText(text) {
+      if (!("speechSynthesis" in window)) return;
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.warn("Speech error:", e);
+      }
+    }
+
+    async function processUserMessage(userInput) {
+      conversationHistory.push({ role: "user", parts: [{ text: userInput }] });
+      statusText.textContent = "Thinking...";
+
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: getSystemInstruction()] } },
+            contents: conversationHistory
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+          addMessage("API Error: " + data.error.message, "error");
+          statusText.textContent = "Error in API Key";
+          return;
+        }
+
+        const aiResponse = data.candidates[0].content.parts[0].text;
+        conversationHistory.push({ role: "model", parts: [{ text: aiResponse }] });
+
+        let spokenResponse = aiResponse;
+        const bookingMatch = aiResponse.match(/\[BOOKING:\s*(\{.*?\})\]/);
+        if (bookingMatch) {
+          spokenResponse = aiResponse.replace(bookingMatch[0], "").trim();
+          try {
+            saveToGoogleSheet(JSON.parse(bookingMatch[1]));
+          } catch (err) {}
+        }
+
+        addMessage(spokenResponse, "bot");
+        speakText(spokenResponse);
+        statusText.textContent = "Ready — Tap mic or type below";
+
+      } catch (err) {
+        addMessage("Connection error: " + err.message, "error");
+        statusText.textContent = "Connection failed";
+      }
+    }
+
+    // Text Input Handlers
+    function handleSend() {
+      const text = textInput.value.trim();
+      if (!text) return;
+      textInput.value = "";
+      addMessage(text, "user");
+      processUserMessage(text);
+    }
+
+    sendBtn.addEventListener("click", handleSend);
+    textInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleSend();
+      }
+    });
+
+    // Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let isListening = false;
+
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => {
+        isListening = true;
+        micBtn.classList.add("listening");
+        statusText.textContent = "Listening... Speak now";
+      };
+
+      recognition.onresult = (e) => {
+        const transcript = e.results[0][0].transcript;
+        addMessage(transcript, "user");
+        processUserMessage(transcript);
+      };
+
+      recognition.onerror = (e) => {
+        statusText.textContent = "Mic error: " + e.error;
+        stopListening();
+      };
+
+      recognition.onend = () => {
+        stopListening();
+      };
+    }
+
+    function stopListening() {
+      isListening = false;
+      micBtn.classList.remove("listening");
+      statusText.textContent = "Ready — Tap mic or type below";
+    }
+
+    micBtn.addEventListener("click", () => {
+      if (!recognition) {
+        alert("Speech recognition not supported in this browser. Please use Google Chrome.");
+        return;
+      }
+      if (isListening) {
+        recognition.stop();
+      } else {
+        try {
+          recognition.start();
+        } catch (e) {
+          recognition.stop();
+        }
+      }
+    });
+
+    async function saveToGoogleSheet(bookingData) {
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bookingData)
+        });
+        console.log("Reservation recorded in Google Sheet:", bookingData);
+      } catch (e) {}
+    }
+  </script>
+</body>
+</html>
