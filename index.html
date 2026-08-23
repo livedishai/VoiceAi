@@ -13,6 +13,7 @@
       --accent-active: #ef4444;
       --border: #334155;
     }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       padding: 16px;
@@ -23,7 +24,6 @@
       flex-direction: column;
       align-items: center;
       min-height: 100vh;
-      box-sizing: border-box;
     }
     .container {
       width: 100%;
@@ -36,7 +36,7 @@
     }
     h1 {
       margin: 0 0 8px 0;
-      font-size: 1.4rem;
+      font-size: 1.3rem;
       text-align: center;
       color: var(--accent);
     }
@@ -123,7 +123,6 @@
       align-items: center;
       justify-content: center;
       outline: none;
-      touch-action: manipulation;
     }
     .mic-btn.listening {
       background: var(--accent-active);
@@ -142,7 +141,7 @@
     </div>
 
     <div class="input-row">
-      <input type="text" id="textInput" placeholder="Type a dish question or reservation..." />
+      <input type="text" id="textInput" placeholder="Ask a dish question or table booking..." autocomplete="off" />
       <button id="sendBtn" type="button">Send</button>
     </div>
 
@@ -155,205 +154,129 @@
     const GEMINI_API_KEY = "AIzaSyCbnQPV-ZMsmYb5Uy9gid8FvTY3GWmOk0Y";
     const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwap82BOPazgkUfm5wwmywH2YfHlsPw5p6cIIo0vmTdIngrGkmd2h81cZU9vdtPshD9cg/exec";
 
-    let liveRestaurantInfo = `
-Restaurant: Sakura Garden Japanese Restaurant
-Address: 100 Feet Road, Indiranagar, Bengaluru
-Timings: Lunch 12:00 PM to 3:30 PM | Dinner 7:00 PM to 11:30 PM
+    const systemPrompt = `You are a friendly Japanese restaurant assistant.
 Menu:
-- Agedashi Tofu (₹350, Vegetarian): Crispy silken tofu in warm savory dashi broth with scallions.
-- Pan-seared Gyoza (₹420): Japanese dumplings filled with pork or seasonal vegetables.
-- Truffle Mushroom Ramen (₹520, Vegetarian): Creamy miso broth with shiitake and fresh noodles.
-- Grilled Salmon Teriyaki (₹750): Norwegian salmon glazed with homemade teriyaki sauce.
-`;
+- Agedashi Tofu (₹350, Veg): Silken tofu in warm savory dashi broth.
+- Pan-seared Gyoza (₹420): Japanese dumplings with minced filling.
+- Truffle Mushroom Ramen (₹520, Veg): Creamy miso broth with noodles.
+- Grilled Salmon Teriyaki (₹750): Norwegian salmon with teriyaki glaze.
+
+Keep answers concise (1-2 sentences). For reservations, collect Name, Phone, Guests, Date/Time.`;
 
     let conversationHistory = [];
     const chatBox = document.getElementById("chatBox");
-    const micBtn = document.getElementById("micBtn");
     const statusText = document.getElementById("statusText");
     const textInput = document.getElementById("textInput");
     const sendBtn = document.getElementById("sendBtn");
+    const micBtn = document.getElementById("micBtn");
 
-    // Dynamic loader for Google Sheets menu sync
-    window.onRestaurantDataLoaded = function(data) {
-      if (data && data.info && data.info.trim().length > 0) {
-        liveRestaurantInfo = data.info;
-      }
-      statusText.textContent = "Ready — Tap mic or type below";
-    };
-
-    function fetchMenuFromGoogleSheet() {
-      try {
-        const script = document.createElement("script");
-        script.src = `${GOOGLE_SCRIPT_URL}?callback=onRestaurantDataLoaded`;
-        document.body.appendChild(script);
-      } catch (err) {}
-    }
-    fetchMenuFromGoogleSheet();
-
-    function getSystemInstruction() {
-      return `
-You are a friendly restaurant voice assistant.
-
-RESTAURANT DATA & MENU:
-${liveRestaurantInfo}
-
-RULES:
-1. Answer customer questions about dishes, allergens, pricing, and operating hours using the data above.
-2. For table reservations, collect: Customer Name, Phone Number, Number of Guests, Date & Time.
-3. Once all 4 reservation details are gathered, provide a short confirmation message and append this exact block at the very end:
-   [BOOKING: {"customer_name": "NAME", "phone": "PHONE", "guests": GUESTS_INT, "date_time": "DATETIME"}]
-4. Keep spoken responses short (1-2 sentences) so they sound natural over voice.
-`;
-    }
-
-    function addMessage(text, type) {
+    function appendMessage(text, role) {
       const msg = document.createElement("div");
-      msg.className = `msg ${type}`;
+      msg.className = `msg ${role}`;
       msg.textContent = text;
       chatBox.appendChild(msg);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function speakText(text) {
-      if (!("speechSynthesis" in window)) return;
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = 1.0;
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.warn("Speech error:", e);
-      }
+    function speak(text) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      window.speechSynthesis.speak(u);
     }
 
-    async function processUserMessage(userInput) {
-      conversationHistory.push({ role: "user", parts: [{ text: userInput }] });
+    async function sendMessage(userText) {
+      if (!userText || !userText.trim()) return;
+
+      appendMessage(userText, "user");
+      textInput.value = "";
       statusText.textContent = "Thinking...";
+
+      conversationHistory.push({ role: "user", parts: [{ text: userText }] });
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`;
 
       try {
-        const response = await fetch(url, {
+        const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            systemInstruction: { parts: [{ text: getSystemInstruction()] } },
+            systemInstruction: { parts: [{ text: systemPrompt }] },
             contents: conversationHistory
           })
         });
 
-        const data = await response.json();
+        const data = await res.json();
 
         if (data.error) {
-          addMessage("API Error: " + data.error.message, "error");
-          statusText.textContent = "API error occurred";
+          appendMessage("Error: " + data.error.message, "error");
+          statusText.textContent = "API error";
           return;
         }
 
-        const aiResponse = data.candidates[0].content.parts[0].text;
-        conversationHistory.push({ role: "model", parts: [{ text: aiResponse }] });
+        const reply = data.candidates[0].content.parts[0].text;
+        conversationHistory.push({ role: "model", parts: [{ text: reply }] });
 
-        let spokenResponse = aiResponse;
-        const bookingMatch = aiResponse.match(/\[BOOKING:\s*(\{.*?\})\]/);
-        if (bookingMatch) {
-          spokenResponse = aiResponse.replace(bookingMatch[0], "").trim();
-          try {
-            saveToGoogleSheet(JSON.parse(bookingMatch[1]));
-          } catch (err) {}
-        }
-
-        addMessage(spokenResponse, "bot");
-        speakText(spokenResponse);
+        appendMessage(reply, "bot");
+        speak(reply);
         statusText.textContent = "Ready — Tap mic or type below";
 
       } catch (err) {
-        addMessage("Connection error: " + err.message, "error");
-        statusText.textContent = "Connection failed";
+        appendMessage("Network error: " + err.message, "error");
+        statusText.textContent = "Connection error";
       }
     }
 
-    // Text Input Handlers
-    function handleSend() {
-      const text = textInput.value.trim();
-      if (!text) return;
-      textInput.value = "";
-      addMessage(text, "user");
-      processUserMessage(text);
-    }
-
-    sendBtn.addEventListener("click", handleSend);
-    textInput.addEventListener("keydown", (e) => {
+    // Direct Event Listeners
+    sendBtn.onclick = () => sendMessage(textInput.value);
+    textInput.onkeydown = (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        handleSend();
+        sendMessage(textInput.value);
       }
-    });
+    };
 
-    // Speech Recognition
+    // Web Speech API
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition = null;
-    let isListening = false;
+    let rec = null;
+    let listening = false;
 
     if (SpeechRecognition) {
-      recognition = new SpeechRecognition();
-      recognition.lang = "en-US";
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      rec = new SpeechRecognition();
+      rec.lang = "en-US";
 
-      recognition.onstart = () => {
-        isListening = true;
+      rec.onstart = () => {
+        listening = true;
         micBtn.classList.add("listening");
         statusText.textContent = "Listening... Speak now";
       };
 
-      recognition.onresult = (e) => {
-        const transcript = e.results[0][0].transcript;
-        addMessage(transcript, "user");
-        processUserMessage(transcript);
+      rec.onresult = (e) => {
+        const speech = e.results[0][0].transcript;
+        sendMessage(speech);
       };
 
-      recognition.onerror = (e) => {
-        statusText.textContent = "Mic error: " + e.error;
-        stopListening();
+      rec.onerror = () => {
+        listening = false;
+        micBtn.classList.remove("listening");
+        statusText.textContent = "Mic error";
       };
 
-      recognition.onend = () => {
-        stopListening();
+      rec.onend = () => {
+        listening = false;
+        micBtn.classList.remove("listening");
+        statusText.textContent = "Ready — Tap mic or type below";
       };
-    }
 
-    function stopListening() {
-      isListening = false;
-      micBtn.classList.remove("listening");
-      statusText.textContent = "Ready — Tap mic or type below";
-    }
-
-    micBtn.addEventListener("click", () => {
-      if (!recognition) {
-        alert("Speech recognition is not supported in this browser. Please use Chrome.");
-        return;
-      }
-      if (isListening) {
-        recognition.stop();
-      } else {
-        try {
-          recognition.start();
-        } catch (e) {
-          recognition.stop();
+      micBtn.onclick = () => {
+        if (listening) {
+          rec.stop();
+        } else {
+          rec.start();
         }
-      }
-    });
-
-    async function saveToGoogleSheet(bookingData) {
-      try {
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(bookingData)
-        });
-        console.log("Reservation recorded in Google Sheet:", bookingData);
-      } catch (e) {}
+      };
+    } else {
+      micBtn.onclick = () => alert("Voice input requires Google Chrome.");
     }
   </script>
 </body>
